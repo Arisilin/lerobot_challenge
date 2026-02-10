@@ -12,11 +12,11 @@ unset all_proxy ALL_PROXY HTTP_PROXY http_proxy HTTPS_PROXY https_proxy
 NUM_GPUS=7                # GPU 数量，改成你的卡数
 BATCH_SIZE=16             # 单卡 batch size
 CHUNK_SIZE=24              # 与配置的 chunk_size / n_action_steps 对齐
-PRETRAINED_PATH=/data/zhangwenyao/drive_data/models--lerobot--pi05_base/snapshots/9e50c659e8a0a6a3625d111044d1566672399e95
+PRETRAINED_PATH=./ckpts/pi05_base/
 RESUME=false              # 若要从中断继续，置为 true 并填写 RESUME_CONFIG_PATH
 RESUME_CONFIG_PATH=null
 JOB_NAME=pi05_leju
-DATA_PATH=/data/zhangwenyao/Leju_challenge/TASK1
+DATA_PATH=./data/leju_task1/
 # ==================== 配置区域 ====================
 
 
@@ -34,7 +34,6 @@ accelerate launch \
   --policy.type=pi05 \
   --policy.device=cuda \
   --policy.pretrained_path=${PRETRAINED_PATH} \
-  --policy.use_fp32_experts=true \
   --policy.chunk_size=${CHUNK_SIZE} \
   --policy.n_action_steps=${CHUNK_SIZE} \
   --policy.dtype=bfloat16 \
