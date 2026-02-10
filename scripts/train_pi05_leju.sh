@@ -25,6 +25,7 @@ accelerate launch \
   --multi_gpu \
   --num_processes=${NUM_GPUS} \
   $(which lerobot-train) \
+  --dataset.root=${DATA_PATH} \
   --dataset.repo_id=${DATA_PATH} \
   --num_workers=16 \
   --batch_size=${BATCH_SIZE} \
