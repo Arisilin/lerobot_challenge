@@ -39,6 +39,11 @@ python src/lerobot/datasets/v30/convert_dataset_v21_to_v30.py \
     --root=/path/to/local/dataset/directory
     --push-to-hub=false
 ```
+Ours
+python src/lerobot/datasets/v30/convert_dataset_v21_to_v30.py \
+    --repo-id=TASK1/lerobot_data/lerobot/ \
+    --root=/data/zhangwenyao/Leju_challenge/ \
+    --push-to-hub=false
 
 """
 
@@ -51,6 +56,7 @@ from typing import Any
 import jsonlines
 import pandas as pd
 import pyarrow as pa
+import pyarrow.parquet as pq
 import tqdm
 from datasets import Dataset, Features, Image
 from huggingface_hub import HfApi, snapshot_download
@@ -98,7 +104,7 @@ OLD
 videos/chunk-000/CAMERA/episode_000000.mp4
 
 NEW
-videos/CAMERA/chunk-000/file_000.mp4
+videos/chunk-000/file_000.mp4
 -------------------------
 OLD
 episodes.jsonl
@@ -175,24 +181,23 @@ def convert_tasks(root, new_root):
 
 
 def concat_data_files(paths_to_cat, new_root, chunk_idx, file_idx, image_keys):
-    # TODO(rcadene): to save RAM use Dataset.from_parquet(file) and concatenate_datasets
-    dataframes = [pd.read_parquet(file) for file in paths_to_cat]
-    # Concatenate all DataFrames along rows
-    concatenated_df = pd.concat(dataframes, ignore_index=True)
+    # 用 PyArrow 读/拼/写，避免经 pandas 导致的两类问题：
+    # 1) 图像列被读成 object，Schema.from_pandas 报 "Did not pass numpy.dtype object"
+    # 2) depth 等嵌套 list 列被读成 object，to_parquet 时 Table.from_pandas 报 "Input object was not a NumPy array"
+    tables = [pq.read_table(p) for p in paths_to_cat]
+    table = pa.concat_tables(tables)
 
     path = new_root / DEFAULT_DATA_PATH.format(chunk_index=chunk_idx, file_index=file_idx)
     path.parent.mkdir(parents=True, exist_ok=True)
 
     if len(image_keys) > 0:
-        schema = pa.Schema.from_pandas(concatenated_df)
+        schema = pq.read_schema(paths_to_cat[0])
         features = Features.from_arrow_schema(schema)
         for key in image_keys:
             features[key] = Image()
         schema = features.arrow_schema
-    else:
-        schema = None
-
-    concatenated_df.to_parquet(path, index=False, schema=schema)
+        table = table.cast(schema)
+    pq.write_table(table, path)
 
 
 def convert_data(root: Path, new_root: Path, data_file_size_in_mb: int):
@@ -238,7 +243,8 @@ def convert_data(root: Path, new_root: Path, data_file_size_in_mb: int):
         paths_to_cat = [ep_path]
 
         chunk_idx, file_idx = update_chunk_file_indices(chunk_idx, file_idx, DEFAULT_CHUNK_SIZE)
-
+        episodes_metadata[-1]["data/chunk_index"] = chunk_idx
+        episodes_metadata[-1]["data/file_index"] = file_idx
     # Write remaining data if any
     if paths_to_cat:
         concat_data_files(paths_to_cat, new_root, chunk_idx, file_idx, image_keys)
