@@ -163,6 +163,8 @@ wandb/
 # Dev scripts
 .dev/
 
+.specstory/
+
 # Data folders
 data/
 outputs/
