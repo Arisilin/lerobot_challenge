@@ -7,7 +7,7 @@
 之后正式训练时会直接命中缓存，启动会快很多。
 
 用法（与 train 脚本里的 --dataset.repo_id / --dataset.root 保持一致）:
-  python scripts/warmup_dataset_cache.py --repo_id=./data/leju_task1 --root=./data/leju_task1
+  python scripts/warmup_dataset_cache.py --repo_id=./data/leju_task3 --root=./data/leju_task3
 
 可选:
   --num_proc=4  并行读 parquet，加快首次建缓存

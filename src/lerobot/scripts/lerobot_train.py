@@ -16,6 +16,7 @@
 import logging
 import time
 from contextlib import nullcontext
+from datetime import timedelta
 from pprint import pformat
 from typing import Any
 
@@ -147,10 +148,14 @@ def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
     # We set step_scheduler_with_optimizer=False to prevent accelerate from adjusting the lr_scheduler steps based on the num_processes
     # We set find_unused_parameters=True to handle models with conditional computation
     if accelerator is None:
-        from accelerate.utils import DistributedDataParallelKwargs
+        from accelerate.utils import DistributedDataParallelKwargs, InitProcessGroupKwargs
 
         ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
-        accelerator = Accelerator(step_scheduler_with_optimizer=False, kwargs_handlers=[ddp_kwargs])
+        init_kwargs = InitProcessGroupKwargs(timeout=timedelta(seconds=1800))
+        accelerator = Accelerator(
+            step_scheduler_with_optimizer=False,
+            kwargs_handlers=[ddp_kwargs, init_kwargs],
+        )
 
     init_logging(accelerator=accelerator)
 

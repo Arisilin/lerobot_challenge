@@ -13,9 +13,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import contextlib
 import glob
 import importlib
 import logging
+import os
 import shutil
 import tempfile
 import warnings
@@ -365,31 +367,42 @@ def encode_video_frames(
 
     # Set logging level
     if log_level is not None:
-        # "While less efficient, it is generally preferable to modify logging with Python's logging"
         logging.getLogger("libav").setLevel(log_level)
 
-    # Create and open output file (overwrite by default)
-    with av.open(str(video_path), "w") as output:
-        output_stream = output.add_stream(vcodec, fps, options=video_options)
-        output_stream.pix_fmt = pix_fmt
-        output_stream.width = width
-        output_stream.height = height
+    # SVT-AV1 C library prints to stderr; redirect it when using libsvtav1
+    @contextlib.contextmanager
+    def _quiet_stderr_if_svt():
+        if vcodec != "libsvtav1":
+            yield
+            return
+        with open(os.devnull, "w") as devnull:
+            orig_stderr = os.dup(2)
+            try:
+                os.dup2(devnull.fileno(), 2)
+                yield
+            finally:
+                os.dup2(orig_stderr, 2)
+                os.close(orig_stderr)
 
-        # Loop through input frames and encode them
-        for input_data in input_list:
-            with Image.open(input_data) as input_image:
-                input_image = input_image.convert("RGB")
-                input_frame = av.VideoFrame.from_image(input_image)
-                packet = output_stream.encode(input_frame)
-                if packet:
-                    output.mux(packet)
+    with _quiet_stderr_if_svt():
+        with av.open(str(video_path), "w") as output:
+            output_stream = output.add_stream(vcodec, fps, options=video_options)
+            output_stream.pix_fmt = pix_fmt
+            output_stream.width = width
+            output_stream.height = height
 
-        # Flush the encoder
-        packet = output_stream.encode()
-        if packet:
-            output.mux(packet)
+            for input_data in input_list:
+                with Image.open(input_data) as input_image:
+                    input_image = input_image.convert("RGB")
+                    input_frame = av.VideoFrame.from_image(input_image)
+                    packet = output_stream.encode(input_frame)
+                    if packet:
+                        output.mux(packet)
 
-    # Reset logging level
+            packet = output_stream.encode()
+            if packet:
+                output.mux(packet)
+
     if log_level is not None:
         av.logging.restore_default_callback()
 
@@ -433,7 +446,7 @@ def concatenate_video_files(
     with tempfile.NamedTemporaryFile(mode="w", suffix=".ffconcat", delete=False) as tmp_concatenate_file:
         tmp_concatenate_file.write("ffconcat version 1.0\n")
         for input_path in input_video_paths:
-            tmp_concatenate_file.write(f"file '{str(input_path.resolve())}'\n")
+            tmp_concatenate_file.write(f"file '{str(Path(input_path).resolve())}'\n")
         tmp_concatenate_file.flush()
         tmp_concatenate_path = tmp_concatenate_file.name
 
@@ -592,13 +605,13 @@ def get_video_pixel_channels(pix_fmt: str) -> int:
 
 def get_video_duration_in_s(video_path: Path | str) -> float:
     """
-    Get the duration of a video file in seconds using PyAV.
+    Get the duration of a video file in seconds using PyAV (metadata).
 
     Args:
         video_path: Path to the video file.
 
     Returns:
-        Duration of the video in seconds.
+        Duration of the video in seconds (from stream/container metadata).
     """
     with av.open(str(video_path)) as container:
         # Get the first video stream
@@ -610,6 +623,48 @@ def get_video_duration_in_s(video_path: Path | str) -> float:
             # Fallback to container duration if stream duration is not available
             duration = float(container.duration / av.time_base)
     return duration
+
+
+def get_video_effective_duration_in_s(video_path: Path | str, decode_tail_s: float = 3.0) -> float:
+    """
+    Get the timestamp (in seconds) of the last decodable frame. Use this for
+    boundary checks when metadata duration may be larger than actual decodable
+    content (e.g. truncated files or wrong container metadata).
+
+    Fast path: seek to (meta_dur - decode_tail_s), decode tail, return last PTS.
+    If that yields no frames (seek past real end), fallback: decode from 0 to get
+    true last frame (avoids wrongly returning meta_dur and missing bad episodes).
+
+    Args:
+        video_path: Path to the video file.
+        decode_tail_s: Decode only this many seconds before metadata end (default 3).
+
+    Returns:
+        PTS in seconds of the last frame that can be decoded.
+    """
+    path_str = str(video_path)
+    with av.open(path_str) as container:
+        stream = container.streams.video[0]
+        if stream.duration is not None:
+            meta_dur_s = float(stream.duration * stream.time_base)
+        else:
+            meta_dur_s = float(container.duration / av.time_base)
+        seek_s = max(0.0, meta_dur_s - decode_tail_s)
+        offset = int(seek_s / float(stream.time_base))
+        container.seek(offset, stream=stream)
+        last_pts_s = 0.0
+        for frame in container.decode(video=0):
+            if frame.pts is not None:
+                last_pts_s = float(frame.pts * stream.time_base)
+    if last_pts_s > 0:
+        return last_pts_s
+    # Seek was past real end (truncated file): decode from start to get true last frame
+    with av.open(path_str) as container:
+        stream = container.streams.video[0]
+        for frame in container.decode(video=0):
+            if frame.pts is not None:
+                last_pts_s = float(frame.pts * stream.time_base)
+    return last_pts_s if last_pts_s > 0 else meta_dur_s
 
 
 class VideoEncodingManager:

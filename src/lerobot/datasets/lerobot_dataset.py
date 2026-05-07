@@ -563,7 +563,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
         download_videos: bool = True,
         video_backend: str | None = None,
         batch_encoding_size: int = 1,
-        num_proc: int | None = None,
+        num_proc: int = 64,
     ):
         """
         2 modes are available for instantiating this class, depending on 2 different use cases:
@@ -1049,7 +1049,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
             current_ts = item["timestamp"].item()
             query_timestamps = self._get_query_timestamps(current_ts, query_indices)
             video_frames = self._query_videos(query_timestamps, ep_idx)
-            item = {**video_frames, **item}
+            item = {**item, **video_frames}
 
         if self.image_transforms is not None:
             image_keys = self.meta.camera_keys
@@ -1327,6 +1327,15 @@ class LeRobotDataset(torch.utils.data.Dataset):
         """
         # Convert buffer into HF Dataset
         ep_dict = {key: episode_buffer[key] for key in self.hf_features}
+        # Video columns expect list of {path, timestamp}; episode_buffer has list of paths and shared timestamp list
+        if len(self.meta.video_keys) > 0 and "timestamp" in episode_buffer:
+            timestamps = episode_buffer["timestamp"]
+            for vkey in self.meta.video_keys:
+                if vkey in ep_dict:
+                    ep_dict[vkey] = [
+                        {"path": p, "timestamp": float(t)}
+                        for p, t in zip(ep_dict[vkey], timestamps)
+                    ]
         ep_dataset = datasets.Dataset.from_dict(ep_dict, features=self.hf_features, split="train")
         ep_dataset = embed_images(ep_dataset)
         ep_num_frames = len(ep_dataset)

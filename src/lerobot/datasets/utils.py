@@ -436,6 +436,9 @@ def hf_transform_to_torch(items_dict: dict[str, list[Any]]) -> dict[str, list[to
             items_dict[key] = [to_tensor(img) for img in items_dict[key]]
         elif first_item is None:
             pass
+        elif isinstance(first_item, dict):
+            # video 列是 struct<path, timestamp>，保持为 dict，后续 __getitem__ 会用 _query_videos 替换为帧
+            pass
         else:
             items_dict[key] = [x if isinstance(x, str) else torch.tensor(x) for x in items_dict[key]]
     return items_dict
@@ -583,7 +586,8 @@ def get_hf_features_from_features(features: dict) -> datasets.Features:
     hf_features = {}
     for key, ft in features.items():
         if ft["dtype"] == "video":
-            continue
+            # parquet 里存的是 struct<path: string, timestamp: float>，schema 需一致才能 cast
+            hf_features[key] = {"path": datasets.Value("string"), "timestamp": datasets.Value("float32")}
         elif ft["dtype"] == "image":
             hf_features[key] = datasets.Image()
         elif ft["shape"] == (1,):

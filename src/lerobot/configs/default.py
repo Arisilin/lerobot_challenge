@@ -36,6 +36,8 @@ class DatasetConfig:
     revision: str | None = None
     use_imagenet_stats: bool = True
     video_backend: str = field(default_factory=get_safe_default_codec)
+    # 视频帧时间戳容差（秒），解码时查询时间与最近帧时间差超过此值会报错；略大可避免边界浮点误差
+    tolerance_s: float = 2e-4
     streaming: bool = False
 
 

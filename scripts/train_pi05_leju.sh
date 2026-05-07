@@ -7,16 +7,16 @@ set -euo pipefail
 # HF 镜像与代理
 export HF_ENDPOINT=https://hf-mirror.com
 unset all_proxy ALL_PROXY HTTP_PROXY http_proxy HTTPS_PROXY https_proxy
-
+# python scripts/warmup_dataset_cache.py --repo_id=/data/zhangwenyao/Leju_challenge/lerobot_data/lerobot/ --root=/data/zhangwenyao/Leju_challenge/lerobot_data/lerobot/ --num_proc=64
 # ==================== 配置区域 ====================
-NUM_GPUS=7                # GPU 数量，改成你的卡数
+NUM_GPUS=6                # GPU 数量，改成你的卡数
 BATCH_SIZE=16             # 单卡 batch size
-CHUNK_SIZE=24              # 与配置的 chunk_size / n_action_steps 对齐
+CHUNK_SIZE=32              # 与配置的 chunk_size / n_action_steps 对齐
 PRETRAINED_PATH=./ckpts/pi05_base/
 RESUME=false              # 若要从中断继续，置为 true 并填写 RESUME_CONFIG_PATH
 RESUME_CONFIG_PATH=null
 JOB_NAME=pi05_leju
-DATA_PATH=./data/leju_task1/
+DATA_PATH=/data/zhangwenyao/Leju_challenge/lerobot_data/lerobot/
 # ==================== 配置区域 ====================
 
 
@@ -27,6 +27,7 @@ accelerate launch \
   $(which lerobot-train) \
   --dataset.root=${DATA_PATH} \
   --dataset.repo_id=${DATA_PATH} \
+  --dataset.video_backend=pyav \
   --num_workers=16 \
   --batch_size=${BATCH_SIZE} \
   --wandb.enable=true \
