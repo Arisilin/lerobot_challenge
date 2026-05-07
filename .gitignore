@@ -182,3 +182,4 @@ outputs/
 
 scripts/archived/*
 archived/*
+.ssh/
